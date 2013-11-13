@@ -9,7 +9,7 @@
 #define MESSAGE_LENGTH_LIMIT 255
 #define PORT "1337"
 
-void send_message(int sockfd)
+int send_message(int sockfd)
 {
    char buffer[MESSAGE_LENGTH_LIMIT];
    int rv;
@@ -19,14 +19,22 @@ void send_message(int sockfd)
 
    if ((rv = send(sockfd, buffer, strlen(buffer), 0)) == -1) {
       perror("client: send");
+      return -1;
    } else {
       printf("client: send %3d: %s", rv, buffer);
 
-      if ((rv = recv(sockfd, buffer, MESSAGE_LENGTH_LIMIT - 1, 0)) == 0)
-         perror("client: recv");
-      else
+      if ((rv = recv(sockfd, buffer, MESSAGE_LENGTH_LIMIT - 1, 0)) <= 0) {
+         if (rv == 0)
+            fprintf(stderr, "connection closed by peer\n");
+         else
+            perror("client: recv");
+         return -1;
+      } else {
          printf("client: recv %3d: %s", rv, buffer);
+      }
    }
+
+   return 0;
 }
 
 int main(int argc, char *argv[])
@@ -69,7 +77,8 @@ int main(int argc, char *argv[])
       return 2;
    }
 
-   send_message(sockfd);
+   while (send_message(sockfd) != -1)
+      ;
 
    close(sockfd);
 

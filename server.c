@@ -8,8 +8,13 @@
 #include <unistd.h>
 
 #define BACKLOG 25
+#define COMMAND_LENGTH 24
+#define MAX_CONNECTIONS 20
 #define MESSAGE_LENGTH_LIMIT 255
 #define PORT "1337"
+
+#define CMD_NONE 0
+#define CMD_QUIT 1
 
 void caesar(char *str)
 {
@@ -31,38 +36,133 @@ void caesar(char *str)
    }
 }
 
-int accept_conn(int sockfd)
+int handle_message(int connfd)
 {
    char buffer[MESSAGE_LENGTH_LIMIT];
-   int connfd, rv;
-   struct sockaddr_storage remote_addr;
-   unsigned int addr_size = sizeof(remote_addr);
-
-   if ((connfd = accept(sockfd, (struct sockaddr *) &remote_addr, &addr_size))
-         == -1) {
-      fprintf(stderr, "Could not accpet: %s\n", strerror(errno));
-      return 0;
-   }
+   int rv;
 
    memset(buffer, 0, MESSAGE_LENGTH_LIMIT);
    rv = recv(connfd, buffer, MESSAGE_LENGTH_LIMIT - 1, 0);
 
    if (rv == 0) {
       fprintf(stderr, "Remote host hung up\n");
+      return -1;
    } else if (rv == -1) {
       perror("server: recv");
+      return -1;
    } else {
       printf("server: recv %3d: %s", rv, buffer);
 
       caesar(buffer);
 
-      if ((rv = send(connfd, buffer, strlen(buffer), 0)) == -1)
+      if ((rv = send(connfd, buffer, strlen(buffer), 0)) == -1) {
          perror("server: send");
-      else
+         return -1;
+      } else {
          printf("server: send %3d: %s", rv, buffer);
+      }
    }
 
    return 0;
+}
+
+int handle_connection(sockfd)
+{
+   int connfd;
+   struct sockaddr_storage remote_addr;
+   unsigned int addr_size = sizeof(remote_addr);
+
+   if ((connfd = accept(sockfd, (struct sockaddr *) &remote_addr, &addr_size))
+         == -1) {
+      fprintf(stderr, "Could not accpet: %s\n", strerror(errno));
+      return -1;
+   }
+
+   return connfd;
+}
+
+int handle_command(int fd)
+{
+   char buffer[COMMAND_LENGTH + 1];
+
+   memset(buffer, 0, COMMAND_LENGTH + 1);
+   fgets(buffer, COMMAND_LENGTH, stdin);
+
+   if (strcmp(buffer, "quit\n") == 0)
+      return CMD_QUIT;
+
+   return CMD_NONE;
+}
+
+void run_server(int sockfd)
+{
+   fd_set readfds;
+   int conn_fds[MAX_CONNECTIONS], readyfds, ndx, done = 0, newfd;
+   int max_fd = sockfd;
+
+   // Set every fd to -1.
+   for (ndx = 0; ndx < MAX_CONNECTIONS; ndx++)
+      conn_fds[ndx] = -1;
+
+   // Add stdin and our listening socket to file descriptor list.
+   conn_fds[0] = STDIN_FILENO;
+   conn_fds[1] = sockfd;
+
+   while (!done) {
+      FD_ZERO(&readfds);
+
+      for (ndx = 0; ndx < MAX_CONNECTIONS; ndx++) {
+         if (conn_fds[ndx] != -1)
+            FD_SET(conn_fds[ndx], &readfds);
+      }
+
+      readyfds = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+
+      if (readyfds == -1)
+         perror("server: select");
+
+      for (ndx = 0; ndx < MAX_CONNECTIONS; ndx++) {
+         if (FD_ISSET(conn_fds[ndx], &readfds)) {
+            // We recieved a command message on stdin.
+            if (conn_fds[ndx] == STDIN_FILENO) {
+               switch (handle_command(STDIN_FILENO)) {
+               case CMD_QUIT:
+                  printf("quitting...\n");
+                  for (ndx = 2; ndx < MAX_CONNECTIONS; ndx++) {
+                     if (conn_fds[ndx] != -1)
+                        close(conn_fds[ndx]);
+                  }
+                  done = 1;
+                  break;
+               }
+               break;
+            // A new connection is ready on the listening socket.
+            } else if (conn_fds[ndx] == sockfd) {
+               if ((newfd = handle_connection(sockfd)) != -1) {
+                  for (ndx = 0; ndx < MAX_CONNECTIONS; ndx++) {
+                     if (conn_fds[ndx] == -1) {
+                        conn_fds[ndx] = newfd;
+                        break;
+                     }
+                  }
+
+                  if (newfd > max_fd)
+                     max_fd = newfd;
+
+                  fprintf(stderr, "fromed new connection\n");
+               }
+               break;
+            // A connection is ready with data.
+            } else {
+               if (handle_message(conn_fds[ndx]) == -1) {
+                  close(conn_fds[ndx]);
+                  conn_fds[ndx] = -1;
+               }
+               break;
+            }
+         }
+      }
+   }
 }
 
 int main(void)
@@ -108,8 +208,7 @@ int main(void)
       exit(1);
    }
 
-   while (accept_conn(sockfd) == 0)
-      ;
+   run_server(sockfd);
 
    close(sockfd);
 
