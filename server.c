@@ -122,6 +122,9 @@ void run_server(int sockfd)
          perror("server: select");
 
       for (ndx = 0; ndx < MAX_CONNECTIONS; ndx++) {
+         if (conn_fds[ndx] == -1)
+            continue;
+
          if (FD_ISSET(conn_fds[ndx], &readfds)) {
             // We recieved a command message on stdin.
             if (conn_fds[ndx] == STDIN_FILENO) {
