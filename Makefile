@@ -9,4 +9,4 @@ client: client.c
 	gcc $(CCFLAGS) -o client client.c
 
 clean:
-	rm -r client server *.dSYM
+	rm -r client server
