@@ -1,7 +1,7 @@
 socktest
 ========
 
-A demonstration of a simple server-client program pair over TCP.
+A demonstration of a simple server-client program pair over TCP using C networking best practices. A good base for client/server projects.
 
 Check out this [tutorial](http://www.rainydayz.org/beej/bgnet/index.html) for more info and an exlanation of the interface used.
 
